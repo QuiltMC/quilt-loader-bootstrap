@@ -1,0 +1,85 @@
+plugins {
+	id 'java'
+	id 'java-library'
+	id 'eclipse'
+	id 'maven-publish'
+	id 'org.quiltmc.gradle.licenser' version '2.0.1'
+}
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+archivesBaseName = "quilt-loader-bootstrap"
+version = project.quilt_loader_bootstrap
+def ENV = System.getenv()
+
+if (ENV.SNAPSHOTS_URL) {
+	version = version + "-SNAPSHOT"
+}
+if (!ENV.GITHUB_ACTIONS) {
+	version = version + "+local"
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+java {
+	sourceCompatibility = 8
+	targetCompatibility = 8
+}
+
+compileJava {
+	options.release.set(8)
+}
+
+tasks.withType(AbstractArchiveTask) {
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = "UTF-8"
+
+	// Target JDK 8
+	if (JavaVersion.current().isJava9Compatible()) {
+		it.options.release.set(8)
+	}
+}
+
+license {
+	rule project.rootProject.file("codeformat/HEADER")
+	include '**/*.java'
+}
+
+// Causes more trouble than its worth
+tasks.withType(GenerateModuleMetadata) {
+	enabled = false
+}
+
+publishing {
+	repositories {
+		if (ENV.MAVEN_URL) {
+			maven {
+				url ENV.MAVEN_URL
+				credentials {
+					username ENV.MAVEN_USERNAME
+					password ENV.MAVEN_PASSWORD
+				}
+			}
+		} else if (ENV.SNAPSHOTS_URL) {
+			maven {
+				url ENV.SNAPSHOTS_URL
+
+				credentials {
+					username ENV.SNAPSHOTS_USERNAME
+					password ENV.SNAPSHOTS_PASSWORD
+				}
+			}
+		} else {
+			mavenLocal()
+		}
+	}
+}
