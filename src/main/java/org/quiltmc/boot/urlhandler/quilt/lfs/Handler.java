@@ -14,18 +14,12 @@
  * limitations under the License.
  */
 
-package org.quiltmc.boot;
+package org.quiltmc.boot.urlhandler.quilt.lfs;
 
-import java.net.URL;
-import java.net.URLClassLoader;
+import org.quiltmc.boot.urlhandler.BootUrlStreamHandler;
 
-public class BootstrapClassLoader extends URLClassLoader {
-
-	public BootstrapClassLoader() {
-		super(new URL[0]);
-	}
-
-	public void add(URL url) {
-		super.addURL(url);
+public class Handler extends BootUrlStreamHandler {
+	public Handler() {
+		super('l');
 	}
 }
