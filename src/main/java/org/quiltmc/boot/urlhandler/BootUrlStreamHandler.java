@@ -17,6 +17,9 @@
 package org.quiltmc.boot.urlhandler;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.net.InetAddress;
 import java.net.Proxy;
 import java.net.URL;
@@ -28,9 +31,20 @@ import org.quiltmc.boot.Bootstrap;
 public abstract class BootUrlStreamHandler extends URLStreamHandler {
 
 	final char letter;
+	// Reference to this::directSetUrl
+	final MethodHandle directSetUrl;
 
 	public BootUrlStreamHandler(char letter) {
 		this.letter = letter;
+		try {
+			MethodType mType = MethodType.methodType(
+				void.class, URL.class, String.class, String.class, int.class, String.class, String.class,
+				String.class, String.class, String.class
+			);
+			directSetUrl = MethodHandles.lookup().findVirtual(getClass(), "directSetUrl", mType).bindTo(this);
+		} catch (NoSuchMethodException | IllegalAccessException e) {
+			throw new Error("Failed to lookup our own method!");
+		}
 	}
 
 	private DelegateUrlHandler getDelegate() {
@@ -58,10 +72,19 @@ public abstract class BootUrlStreamHandler extends URLStreamHandler {
 	@Override
 	protected void parseURL(URL u, String spec, int start, int limit) {
 		DelegateUrlHandler delegate = getDelegate();
-		if (delegate == null) {
+		if (delegate == null || delegate.quilt_passSetURL == null) {
 			super.parseURL(u, spec, start, limit);
 		} else {
+			passDirectSetUrl(delegate);
 			delegate.parseURL(u, spec, start, limit);
+		}
+	}
+
+	private void passDirectSetUrl(DelegateUrlHandler delegate) {
+		try {
+			delegate.quilt_passSetURL.invokeExact(directSetUrl);
+		} catch (Throwable e) {
+			throw DelegateUrlHandler.asUnchecked(e);
 		}
 	}
 
@@ -141,9 +164,10 @@ public abstract class BootUrlStreamHandler extends URLStreamHandler {
 		String ref
 	) {
 		DelegateUrlHandler delegate = getDelegate();
-		if (delegate == null) {
+		if (delegate == null || delegate.quilt_passSetURL == null) {
 			super.setURL(u, protocol, host, port, authority, userInfo, path, query, ref);
 		} else {
+			passDirectSetUrl(delegate);
 			delegate.setURL(u, protocol, host, port, authority, userInfo, path, query, ref);
 		}
 	}
@@ -153,10 +177,19 @@ public abstract class BootUrlStreamHandler extends URLStreamHandler {
 	protected void setURL(URL u, String protocol, String host, int port, String file, String ref) {
 
 		DelegateUrlHandler delegate = getDelegate();
-		if (delegate == null) {
+		if (delegate == null || delegate.quilt_passSetURL == null) {
 			super.setURL(u, protocol, host, port, file, ref);
 		} else {
+			passDirectSetUrl(delegate);
 			delegate.setURL(u, protocol, host, port, file, ref);
 		}
+	}
+
+	/** Exposed as a method handle in {@link DelegateUrlHandler} */
+	void directSetUrl(
+		URL u, String protocol, String host, int port, String authority, String userInfo, String path, String query,
+		String ref
+	) {
+		super.setURL(u, protocol, host, port, authority, userInfo, path, query, ref);
 	}
 }

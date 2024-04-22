@@ -53,11 +53,18 @@ public class BootstrapLaunch implements BootstrapContext {
 
 	@Override
 	public void putFileSystemProvider(char letter, FileSystemProvider provider, URLStreamHandler handler) {
+		putFileSystemProvider(letter, provider, handler, null);
+	}
+
+	@Override
+	public void putFileSystemProvider(char letter, FileSystemProvider provider, URLStreamHandler handler,
+		Lookup urlLookup) {
+
 		if (letter < 'a' || letter > 'z') {
 			throw new IllegalArgumentException("Only 'a-z' filesystems are supported!");
 		}
 		fileSystemProviders.put(letter, provider);
-		urlStreamHandlers.put(letter, new DelegateUrlHandler(handler));
+		urlStreamHandlers.put(letter, new DelegateUrlHandler(handler, urlLookup));
 	}
 
 	Path run(Path currentPath, String[] args) {

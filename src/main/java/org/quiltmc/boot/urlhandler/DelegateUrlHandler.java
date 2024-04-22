@@ -19,6 +19,7 @@ package org.quiltmc.boot.urlhandler;
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
@@ -43,61 +44,78 @@ public final class DelegateUrlHandler extends URLStreamHandler {
 	final MethodHandle toExternalForm;
 	final MethodHandle setURL_NEW;
 	final MethodHandle setURL_DEPRECATED;
+	// Context passing methods
+	final MethodHandle quilt_passSetURL;
 
-	public DelegateUrlHandler(URLStreamHandler delegate) {
+	public DelegateUrlHandler(URLStreamHandler delegate, Lookup lookup) {
 		this.delegate = delegate;
-		openConnection_URL = lookup("openConnection", URLConnection.class, URL.class);
+
+		openConnection_URL = lookup(lookup, "openConnection", URLConnection.class, URL.class);
 		if (openConnection_URL == null) {
 			// It's an abstract method, so it's required
 			throw new IllegalArgumentException(
-				"The delegate '" + delegate.getClass() + "' doesn't declare a public method "
+				"The delegate '" + delegate.getClass() + "' doesn't override the 'openConnection' method?"
 			);
 		}
-		openConnection_URL_Proxy = lookup("openConnection", URLConnection.class, URL.class, Proxy.class);
-		parseURL = lookup("parseURL", void.class, URL.class, String.class, int.class, int.class);
-		getDefaultPort = lookup("getDefaultPort", int.class);
-		equals_URL_URL = lookup("equals", boolean.class, URL.class, URL.class);
-		hashCode_URL = lookup("hashCode", int.class, URL.class);
-		sameFile = lookup("sameFile", boolean.class, URL.class, URL.class);
-		getHostAddress = lookup("getHostAddress", InetAddress.class, URL.class);
-		hostsEqual = lookup("hostsEqual", boolean.class, URL.class, URL.class);
-		toExternalForm = lookup("toExternalForm", String.class, URL.class);
+		openConnection_URL_Proxy = lookup(lookup, "openConnection", URLConnection.class, URL.class, Proxy.class);
+		parseURL = lookup(lookup, "parseURL", void.class, URL.class, String.class, int.class, int.class);
+		getDefaultPort = lookup(lookup, "getDefaultPort", int.class);
+		equals_URL_URL = lookup(lookup, "equals", boolean.class, URL.class, URL.class);
+		hashCode_URL = lookup(lookup, "hashCode", int.class, URL.class);
+		sameFile = lookup(lookup, "sameFile", boolean.class, URL.class, URL.class);
+		getHostAddress = lookup(lookup, "getHostAddress", InetAddress.class, URL.class);
+		hostsEqual = lookup(lookup, "hostsEqual", boolean.class, URL.class, URL.class);
+		toExternalForm = lookup(lookup, "toExternalForm", String.class, URL.class);
 		setURL_NEW = lookup(
-			"setURL", void.class, URL.class, String.class, String.class, int.class, String.class, String.class,
-			String.class, String.class, String.class
+			lookup, "setURL", void.class, URL.class, String.class, String.class, int.class, String.class,
+			String.class, String.class, String.class, String.class
 		);
 		setURL_DEPRECATED = lookup(
-			"setURL", void.class, URL.class, String.class, String.class, int.class, String.class, String.class
+			lookup, "setURL", void.class, URL.class, String.class, String.class, int.class, String.class, String.class
 		);
-	}
 
-	private MethodHandle lookup(String methodName, Class<?> returnType, Class<?>... argTypes) {
-		try {
+		quilt_passSetURL = lookup(lookup, "quilt_passSetURL", void.class, MethodHandle.class);
 
-			return MethodHandles.publicLookup()
-				.findVirtual(delegate.getClass(), methodName, MethodType.methodType(returnType, argTypes))
-				.bindTo(delegate);
-
-		} catch (NoSuchMethodException | IllegalAccessException e) {
-			try {
-				Method realMethod = delegate.getClass().getDeclaredMethod(methodName, argTypes);
-
-				if (realMethod.getReturnType().equals(returnType)) {
-					throw new IllegalArgumentException(
-						"Unable to reflect " + realMethod + " because it is not public!"
-					);
-				} else {
-					return null;
-				}
-
-			} catch (NoSuchMethodException | SecurityException e2) {
-				// That's okay
-				return null;
+		if (quilt_passSetURL == null) {
+			if (parseURL != null || setURL_NEW != null || setURL_DEPRECATED != null) {
+				throw new Error(
+					"Either parseURL or setURL has been overriden without adding a 'void quilt_passSetURL(MethodHandle handle)' method!\n(In "
+						+ delegate.getClass() + ")"
+				);
 			}
 		}
 	}
 
-	private static IOException asIOException(Throwable e) {
+	private MethodHandle lookup(Lookup lookup, String methodName, Class<?> returnType, Class<?>... argTypes) {
+
+		boolean isPublicLookup = false;
+
+		if (lookup == null) {
+			isPublicLookup = true;
+			lookup = MethodHandles.publicLookup();
+		}
+
+		MethodType type = MethodType.methodType(returnType, argTypes);
+
+		try {
+			return lookup
+				.findVirtual(delegate.getClass(), methodName, type)
+				.bindTo(delegate);
+
+		} catch (NoSuchMethodException ignored) {
+			return null;
+		} catch (IllegalAccessException e) {
+			String msg = "Unable to reflect " + methodName + type + " because ";
+			if (isPublicLookup) {
+				msg += "it is not public! Try changing the method to public, or pass a privileged lookup to BootstrapContext.putFileSystemProvider!";
+			} else {
+				msg += "the lookup " + lookup + " doesn't have access to it!";
+			}
+			throw new IllegalArgumentException(msg, e);
+		}
+	}
+
+	static IOException asIOException(Throwable e) {
 		if (e instanceof IOException) {
 			return (IOException) e;
 		} else if (e instanceof RuntimeException) {
@@ -109,7 +127,7 @@ public final class DelegateUrlHandler extends URLStreamHandler {
 		}
 	}
 
-	private static RuntimeException asUnchecked(Throwable e) {
+	static RuntimeException asUnchecked(Throwable e) {
 		if (e instanceof RuntimeException) {
 			return (RuntimeException) e;
 		} else if (e instanceof Error) {
